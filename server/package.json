@@ -1,0 +1,33 @@
+{
+  "name": "one-vs-many-omok-server",
+  "version": "1.0.0",
+  "description": "Server for one-vs-many omok game",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "test:watch": "jest --watch"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/cors": "^2.8.14",
+    "@types/express": "^4.17.20",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^20.9.0",
+    "jest": "^30.2.0",
+    "jsdom": "^28.0.0",
+    "nodemon": "^3.0.1",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2",
+    "vitest": "^4.0.18"
+  }
+}
