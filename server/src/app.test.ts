@@ -416,3 +416,111 @@ describe('happy-path voting flow', () => {
     expect(finalState.isHostTurn).toBe(true);
   });
 });
+
+// ── Host Color Selection ───────────────────────────────────────────────────────
+
+describe('setHostColor', () => {
+  it('broadcasts hostColorChanged to all players in the room', async () => {
+    const hostSid = 'sid-color-host';
+    const challSid = 'sid-color-chall';
+
+    const hostSock = connect();
+    await Promise.all([waitFor(hostSock, 'sessionRegistered'), registerSession(hostSock, hostSid)]);
+    hostSock.emit('createRoom', 'ColorRoom', 'Host');
+    const roomInfo = await waitFor<RoomInfo>(hostSock, 'roomCreated');
+
+    const challSock = connect();
+    await Promise.all([waitFor(challSock, 'sessionRegistered'), registerSession(challSock, challSid)]);
+    challSock.emit('joinRoom', roomInfo.id, 'Challenger');
+    await waitFor(challSock, 'roomJoined');
+
+    const hostColorP = waitFor<string>(hostSock, 'hostColorChanged');
+    const challColorP = waitFor<string>(challSock, 'hostColorChanged');
+    hostSock.emit('setHostColor', 'white');
+
+    const [hostColor, challColor] = await Promise.all([hostColorP, challColorP]);
+    expect(hostColor).toBe('white');
+    expect(challColor).toBe('white');
+  });
+
+  it('host picks white → challenger can vote immediately after gameStarted', async () => {
+    const hostSid = 'sid-white-host';
+    const challSid = 'sid-white-chall';
+
+    const hostSock = connect();
+    await Promise.all([waitFor(hostSock, 'sessionRegistered'), registerSession(hostSock, hostSid)]);
+    hostSock.emit('createRoom', 'WhiteRoom', 'Host');
+    const roomInfo = await waitFor<RoomInfo>(hostSock, 'roomCreated');
+
+    const challSock = connect();
+    await Promise.all([waitFor(challSock, 'sessionRegistered'), registerSession(challSock, challSid)]);
+    challSock.emit('joinRoom', roomInfo.id, 'Challenger');
+    await waitFor(challSock, 'roomJoined');
+
+    hostSock.emit('setHostColor', 'white');
+    await waitFor(hostSock, 'hostColorChanged');
+
+    // Register gameState listeners before startGame
+    const initHostP = waitFor<SharedGameState>(hostSock, 'gameState');
+    const initChallP = waitFor<SharedGameState>(challSock, 'gameState');
+    hostSock.emit('startGame');
+    const [initialState] = await Promise.all([initHostP, initChallP]);
+
+    // Challengers go first when host is white
+    expect(initialState.isHostTurn).toBe(false);
+    expect(initialState.hostStoneColor).toBe('white');
+
+    // Challenger votes → vote resolves → host turn
+    const resolvedP = waitFor(hostSock, 'voteResolved');
+    const afterVoteP = waitFor<SharedGameState>(hostSock, 'gameState');
+    challSock.emit('placeStone', { row: 7, col: 7 });
+    const [afterVote] = await Promise.all([afterVoteP, resolvedP]);
+
+    expect(afterVote.board.cells[7][7]).toBe('black'); // challenger placed black
+    expect(afterVote.isHostTurn).toBe(true);
+  });
+});
+
+// ── Reconnect restores hostStoneColor ─────────────────────────────────────────
+
+describe('reconnect restores host color', () => {
+  it('SharedGameState.hostStoneColor is included in the reconnected payload', async () => {
+    const hostSid = 'sid-recon-color-host';
+    const challSid = 'sid-recon-color-chall';
+
+    const hostSock = connect();
+    await Promise.all([waitFor(hostSock, 'sessionRegistered'), registerSession(hostSock, hostSid)]);
+    hostSock.emit('createRoom', 'ReconColorRoom', 'Host');
+    const roomInfo = await waitFor<RoomInfo>(hostSock, 'roomCreated');
+
+    const challSock = connect();
+    await Promise.all([waitFor(challSock, 'sessionRegistered'), registerSession(challSock, challSid)]);
+    challSock.emit('joinRoom', roomInfo.id, 'Challenger');
+    await waitFor(challSock, 'roomJoined');
+
+    hostSock.emit('setHostColor', 'white');
+    await waitFor(hostSock, 'hostColorChanged');
+
+    const initP = waitFor<SharedGameState>(hostSock, 'gameState');
+    hostSock.emit('startGame');
+    await initP;
+
+    // Place a stone so there's board state to restore
+    const postMoveP = waitFor<SharedGameState>(challSock, 'gameState');
+    challSock.emit('placeStone', { row: 7, col: 7 });
+    await postMoveP;
+
+    hostSock.disconnect();
+    await delay(10);
+
+    const hostSock2 = connect();
+    const [reconnPayload] = await Promise.all([
+      waitForReconnected(hostSock2),
+      registerSession(hostSock2, hostSid),
+    ]);
+
+    const [, , gameState] = reconnPayload;
+    expect(gameState).not.toBeNull();
+    expect(gameState!.hostStoneColor).toBe('white');
+  });
+});
