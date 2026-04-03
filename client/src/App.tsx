@@ -5,6 +5,7 @@ import { GameRoom } from './components/GameRoom';
 function App() {
   const {
     isConnected,
+    isReconnecting,
     rooms,
     currentRoom,
     player,
@@ -21,7 +22,7 @@ function App() {
     refreshRooms,
   } = useSocket();
 
-  if (!isConnected) {
+  if (!isConnected && !isReconnecting) {
     return (
       <div style={{
         display: 'flex',
@@ -36,7 +37,7 @@ function App() {
     );
   }
 
-  return (
+  const gameContent = (
     <div style={{ minHeight: '100vh', backgroundColor: '#fafafa' }}>
       {error && (
         <div style={{
@@ -78,6 +79,31 @@ function App() {
       )}
     </div>
   );
+
+  if (isReconnecting) {
+    return (
+      <div style={{ position: 'relative' }}>
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          color: '#fff',
+          fontSize: '20px',
+          gap: '12px',
+        }}>
+          <span style={{ animation: 'spin 1s linear infinite' }}>⟳</span>
+          재연결 중...
+        </div>
+        {gameContent}
+      </div>
+    );
+  }
+
+  return gameContent;
 }
 
 export default App;

@@ -41,7 +41,17 @@ export interface RoomInfo {
   status: 'waiting' | 'playing' | 'finished';
 }
 
+export interface SessionInfo {
+  sessionId: string;
+  socketId: string;
+  playerName: string;
+  isHost: boolean;
+  roomId: string | null;
+  gracePeriodTimer: ReturnType<typeof setTimeout> | null;
+}
+
 export interface ClientToServerEvents {
+  register: (sessionId: string) => void;
   createRoom: (roomName: string, playerName: string) => void;
   joinRoom: (roomId: string, playerName: string) => void;
   leaveRoom: () => void;
@@ -51,7 +61,10 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
-  roomCreated: (room: RoomInfo) => void;
+  sessionRegistered: (sessionId: string) => void;
+  reconnected: (room: RoomInfo, player: Player, gameStates: GameState[], challengers: Player[]) => void;
+  playerReconnected: (playerId: string) => void;
+  roomCreated: (room: RoomInfo, player: Player) => void;
   roomJoined: (room: RoomInfo, player: Player) => void;
   roomUpdated: (room: RoomInfo) => void;
   roomList: (rooms: RoomInfo[]) => void;
