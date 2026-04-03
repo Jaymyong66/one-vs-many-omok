@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SharedGameState, Player, Position, VoteTally } from '../types/game';
+import { SharedGameState, Player, Position, VoteTally, HostColorPreference } from '../types/game';
 import { Board } from './Board';
 import { PlayerList } from './PlayerList';
 
@@ -12,10 +12,12 @@ interface GameRoomProps {
   isGameStarted: boolean;
   voteTally: VoteTally | null;
   myVote: Position | null;
+  hostColorPreference: HostColorPreference;
   onStartGame: () => void;
   onPlaceStone: (position: Position) => void;
   onCastVote: (position: Position) => void;
   onLeaveRoom: () => void;
+  onSetHostColor: (color: HostColorPreference) => void;
 }
 
 function useCountdown(timeLeftMs: number | null): number {
@@ -45,13 +47,18 @@ export function GameRoom({
   isGameStarted,
   voteTally,
   myVote,
+  hostColorPreference,
   onStartGame,
   onPlaceStone,
   onCastVote,
   onLeaveRoom,
+  onSetHostColor,
 }: GameRoomProps) {
   const isHost = player.isHost;
   const isVotingPhase = !!voteTally && gameState && !gameState.isHostTurn && !gameState.winner;
+  const hostColorInGame = gameState?.hostStoneColor ?? (hostColorPreference === 'random' ? 'black' : hostColorPreference);
+  const hostStoneEmoji = hostColorInGame === 'black' ? '⚫' : '⚪';
+  const challengerStoneEmoji = hostColorInGame === 'black' ? '⚪' : '⚫';
   const secondsLeft = useCountdown(isVotingPhase ? voteTally!.timeLeftMs : null);
 
   const voteCount = isVotingPhase ? Object.keys(voteTally!.votes).length : 0;
@@ -84,7 +91,7 @@ export function GameRoom({
       if (gameState.isHostTurn) {
         return (
           <div style={{ padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
-            ⚫ 당신의 차례입니다. 돌을 놓으세요!
+            {hostStoneEmoji} 당신의 차례입니다. 돌을 놓으세요!
           </div>
         );
       }
@@ -106,13 +113,13 @@ export function GameRoom({
     if (myVote) {
       return (
         <div style={{ padding: '12px', backgroundColor: '#e3f2fd', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
-          ⚪ 투표 완료! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음 (다른 칸을 클릭해 변경 가능)
+          {challengerStoneEmoji} 투표 완료! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음 (다른 칸을 클릭해 변경 가능)
         </div>
       );
     }
     return (
       <div style={{ padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
-        ⚪ 돌을 놓을 위치에 투표하세요! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음
+        {challengerStoneEmoji} 돌을 놓을 위치에 투표하세요! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음
       </div>
     );
   };
@@ -130,11 +137,37 @@ export function GameRoom({
   const renderBoard = () => {
     if (!isGameStarted) {
       if (isHost) {
+        const colorOptions: { value: HostColorPreference; label: string }[] = [
+          { value: 'black', label: '⚫ 흑 (선공)' },
+          { value: 'white', label: '⚪ 백 (후공)' },
+          { value: 'random', label: '🎲 랜덤' },
+        ];
         return (
           <div style={{ textAlign: 'center' }}>
-            <p style={{ marginBottom: '20px', color: '#666' }}>
+            <p style={{ marginBottom: '12px', color: '#666' }}>
               도전자가 참가하면 게임을 시작할 수 있습니다.
             </p>
+            <div style={{ marginBottom: '20px' }}>
+              <span style={{ marginRight: '12px', color: '#444', fontWeight: 500 }}>내 돌 색상:</span>
+              {colorOptions.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => onSetHostColor(value)}
+                  style={{
+                    marginRight: '8px',
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    backgroundColor: hostColorPreference === value ? '#1565c0' : '#e0e0e0',
+                    color: hostColorPreference === value ? 'white' : '#333',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={onStartGame}
               disabled={challengers.length === 0}
@@ -153,9 +186,13 @@ export function GameRoom({
           </div>
         );
       }
+      const colorLabel =
+        hostColorPreference === 'black' ? '⚫ 흑 (선공)' :
+        hostColorPreference === 'white' ? '⚪ 백 (후공)' : '🎲 랜덤';
       return (
         <div style={{ textAlign: 'center', color: '#666' }}>
           <p>호스트가 게임을 시작할 때까지 기다려주세요...</p>
+          <p style={{ fontSize: '14px' }}>호스트 돌 색상: {colorLabel}</p>
         </div>
       );
     }
@@ -205,7 +242,13 @@ export function GameRoom({
         </button>
       </div>
 
-      <PlayerList host={hostName} challengers={challengers} />
+      <PlayerList
+        host={hostName}
+        challengers={challengers}
+        isCurrentPlayerHost={isHost}
+        currentPlayerId={player.id}
+        hostStoneColor={gameState?.hostStoneColor ?? hostColorPreference}
+      />
 
       {renderStatus()}
       {renderBoard()}

@@ -10,8 +10,8 @@ A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomo
 
 | Role | Description |
 |---|---|
-| **Host** | Creates the room. Plays black stones and moves first each round. |
-| **Challenger** | Joins an existing room. Votes on where to place the shared white stone each round. |
+| **Host** | Creates the room. Selects stone color (black, white, or random) before game start. Moves first when playing black. |
+| **Challenger** | Joins an existing room. Votes on where to place the shared stone each round. |
 
 - Multiple challengers share one board — they are one team against the host.
 - All challengers vote simultaneously; the majority-vote position is chosen.
@@ -22,13 +22,14 @@ A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomo
 
 - **Board size:** 15 × 15
 - **Win condition:** 5 consecutive stones in any direction — horizontal, vertical, diagonal, or anti-diagonal
-- Black (host) moves first
+- **Stone color:** Before starting, the host selects black, white, or random. Black always moves first (standard Gomoku rule). If "random" is chosen, the server resolves it at game start. Challengers see the host's selection update in real-time.
+- Black moves first
 
 ---
 
 ## Turn Flow
 
-1. The host places a black stone on the shared board.
+1. The side playing black places a stone first. If the host plays black, the host moves; if the host plays white, challengers vote first.
 2. A 30-second voting timer starts. Each challenger clicks a cell to cast their vote (can change vote during the window).
 3. Live vote tallies are visible to everyone in real-time.
 4. When the timer expires (or all challengers have voted), the position with the most votes is chosen:
@@ -55,6 +56,7 @@ All game state lives on the server. The client drives state changes through Sock
 | `startGame` | Host starts the game |
 | `placeStone` | Host places a stone **or** challenger casts a vote |
 | `getRooms` | Request the current room list |
+| `setHostColor` | Host sets stone color preference (`black`, `white`, or `random`) before game start |
 
 ### Server → Client
 
@@ -71,6 +73,13 @@ All game state lives on the server. The client drives state changes through Sock
 | `voteResolved` | Voting resolved: winning position + method (`plurality` / `tiebreak` / `random`) |
 | `gameOver` | Game ended — includes winner and final board |
 | `error` | An error occurred |
+| `hostColorChanged` | Host changed their color preference; broadcast to all players in the room |
+
+---
+
+## Player Identity in UI
+
+Each player can identify themselves in the player list: their own name is displayed in **bold** with a highlight. For example, if Jisu and Jay are both challengers, Jisu sees her name bolded in her UI, and Jay sees his name bolded in his UI. The same applies to the host row.
 
 ---
 
