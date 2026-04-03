@@ -3,7 +3,10 @@ import { io, Socket } from 'socket.io-client';
 import { GameState, Player, Position, RoomInfo } from '../types/game';
 
 interface ServerToClientEvents {
-  roomCreated: (room: RoomInfo) => void;
+  sessionRegistered: (sessionId: string) => void;
+  reconnected: (room: RoomInfo, player: Player, gameStates: GameState[], challengers: Player[]) => void;
+  playerReconnected: (playerId: string) => void;
+  roomCreated: (room: RoomInfo, player: Player) => void;
   roomJoined: (room: RoomInfo, player: Player) => void;
   roomUpdated: (room: RoomInfo) => void;
   roomList: (rooms: RoomInfo[]) => void;
@@ -19,6 +22,7 @@ interface ServerToClientEvents {
 }
 
 interface ClientToServerEvents {
+  register: (sessionId: string) => void;
   createRoom: (roomName: string, playerName: string) => void;
   joinRoom: (roomId: string, playerName: string) => void;
   leaveRoom: () => void;
@@ -29,9 +33,19 @@ interface ClientToServerEvents {
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
 
+function getOrCreateSessionId(): string {
+  let id = localStorage.getItem('omok_session_id');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('omok_session_id', id);
+  }
+  return id;
+}
+
 export function useSocket() {
   const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [currentRoom, setCurrentRoom] = useState<RoomInfo | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
@@ -41,26 +55,76 @@ export function useSocket() {
   const [canHostMove, setCanHostMove] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Keep a ref to currentRoom so disconnect handler can read its current value
+  const currentRoomRef = useRef<RoomInfo | null>(null);
+  currentRoomRef.current = currentRoom;
+
   useEffect(() => {
-    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SERVER_URL);
+    const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io(SERVER_URL, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      setIsConnected(true);
-      socket.emit('getRooms');
+      const sessionId = getOrCreateSessionId();
+      socket.emit('register', sessionId);
     });
 
     socket.on('disconnect', () => {
       setIsConnected(false);
+      if (currentRoomRef.current) {
+        // Mid-session disconnect — keep game state, show reconnecting overlay
+        setIsReconnecting(true);
+      } else {
+        // Not in a room — nothing meaningful to preserve
+        setPlayer(null);
+        setGameStates(new Map());
+        setChallengers([]);
+        setIsGameStarted(false);
+      }
+    });
+
+    // Fresh session — no prior state to restore
+    socket.on('sessionRegistered', () => {
+      setIsConnected(true);
+      setIsReconnecting(false);
+      setCurrentRoom(null);
+      setPlayer(null);
+      setGameStates(new Map());
+      setChallengers([]);
+      setIsGameStarted(false);
+      socket.emit('getRooms');
+    });
+
+    // Reconnected with active session — restore full state
+    socket.on('reconnected', (room, restoredPlayer, states, restoredChallengers) => {
+      setIsConnected(true);
+      setIsReconnecting(false);
+      setCurrentRoom(room);
+      setPlayer(restoredPlayer);
+      setChallengers(restoredChallengers);
+      if (states.length > 0) {
+        setIsGameStarted(true);
+        const newMap = new Map<string, GameState>();
+        for (const s of states) newMap.set(s.challengerId, s);
+        setGameStates(newMap);
+      }
+    });
+
+    socket.on('playerReconnected', (_playerId) => {
+      // Peer came back — no state change needed in v1
     });
 
     socket.on('roomList', (roomList) => {
       setRooms(roomList);
     });
 
-    socket.on('roomCreated', (room) => {
+    socket.on('roomCreated', (room, createdPlayer) => {
       setCurrentRoom(room);
-      setPlayer({ id: socket.id!, name: '', isHost: true });
+      setPlayer(createdPlayer);
       setChallengers([]);
     });
 
@@ -140,6 +204,7 @@ export function useSocket() {
 
   return {
     isConnected,
+    isReconnecting,
     rooms,
     currentRoom,
     player,
