@@ -15,6 +15,7 @@ function App() {
     voteTally,
     myVote,
     error,
+    hostColorPreference,
     createRoom,
     joinRoom,
     leaveRoom,
@@ -22,6 +23,7 @@ function App() {
     placeStone,
     castVote,
     refreshRooms,
+    setHostColor,
   } = useSocket();
 
   if (!isConnected && !isReconnecting) {
@@ -75,10 +77,12 @@ function App() {
           isGameStarted={isGameStarted}
           voteTally={voteTally}
           myVote={myVote}
+          hostColorPreference={hostColorPreference}
           onStartGame={startGame}
           onPlaceStone={placeStone}
           onCastVote={castVote}
           onLeaveRoom={leaveRoom}
+          onSetHostColor={setHostColor}
         />
       )}
     </div>

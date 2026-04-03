@@ -8,7 +8,8 @@ import {
   BOARD_SIZE,
   RoomInfo,
   VoteMap,
-  VoteTally
+  VoteTally,
+  HostColorPreference
 } from './types';
 
 export const DEFAULT_VOTE_TIMEOUT_MS = 30000;
@@ -21,6 +22,8 @@ export class GameRoom implements Room {
   game: SharedGameState | null = null;
   status: 'waiting' | 'playing' | 'finished' = 'waiting';
   hostReady: boolean = false;
+  hostStoneColor: HostColorPreference = 'black';
+  private resolvedHostColor: 'black' | 'white' = 'black';
   private votes: Map<string, Position> = new Map();
   private voteTimer: ReturnType<typeof setTimeout> | null = null;
   private voteStartTime: number = 0;
@@ -57,14 +60,25 @@ export class GameRoom implements Room {
     return true;
   }
 
+  setHostColor(color: HostColorPreference): boolean {
+    if (this.status !== 'waiting') return false;
+    this.hostStoneColor = color;
+    return true;
+  }
+
   startGame(): boolean {
     if (this.challengers.length === 0) return false;
+    this.resolvedHostColor =
+      this.hostStoneColor === 'random'
+        ? Math.random() < 0.5 ? 'black' : 'white'
+        : this.hostStoneColor;
     this.status = 'playing';
     this.game = {
       board: this.createEmptyBoard(),
-      isHostTurn: true,
+      isHostTurn: this.resolvedHostColor === 'black',
       winner: null,
       lastMove: null,
+      hostStoneColor: this.resolvedHostColor,
     };
     this.votes.clear();
     return true;
@@ -75,10 +89,10 @@ export class GameRoom implements Room {
     if (!this.game.isHostTurn || this.game.winner) return false;
     if (!this.isValidMove(this.game.board, position)) return false;
 
-    this.game.board.cells[position.row][position.col] = 'black';
+    this.game.board.cells[position.row][position.col] = this.resolvedHostColor;
     this.game.lastMove = position;
 
-    if (this.checkWin(this.game.board, position, 'black')) {
+    if (this.checkWin(this.game.board, position, this.resolvedHostColor)) {
       this.game.winner = 'host';
     } else if (this.isBoardFull(this.game.board)) {
       this.game.winner = 'draw';
@@ -140,11 +154,12 @@ export class GameRoom implements Room {
       }
     }
 
-    this.game.board.cells[resolvedPosition.row][resolvedPosition.col] = 'white';
+    const challengerColor: StoneType = this.resolvedHostColor === 'black' ? 'white' : 'black';
+    this.game.board.cells[resolvedPosition.row][resolvedPosition.col] = challengerColor;
     this.game.lastMove = resolvedPosition;
     this.votes.clear();
 
-    if (this.checkWin(this.game.board, resolvedPosition, 'white')) {
+    if (this.checkWin(this.game.board, resolvedPosition, challengerColor)) {
       this.game.winner = 'challengers';
     } else if (this.isBoardFull(this.game.board)) {
       this.game.winner = 'draw';
@@ -263,6 +278,7 @@ export class GameRoom implements Room {
       hostName: this.host.name,
       challengerCount: this.challengers.length,
       status: this.status,
+      hostStoneColor: this.hostStoneColor,
     };
   }
 }

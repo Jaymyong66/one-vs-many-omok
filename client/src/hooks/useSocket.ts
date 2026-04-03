@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { SharedGameState, Player, Position, RoomInfo, VoteTally, Board } from '../types/game';
+import { SharedGameState, Player, Position, RoomInfo, VoteTally, Board, HostColorPreference } from '../types/game';
 
 interface ServerToClientEvents {
   sessionRegistered: (sessionId: string) => void;
@@ -25,6 +25,7 @@ interface ServerToClientEvents {
   voteResolved: (position: Position, method: 'plurality' | 'tiebreak' | 'random') => void;
   gameOver: (winner: 'host' | 'challengers' | 'draw', board: Board) => void;
   error: (message: string) => void;
+  hostColorChanged: (color: HostColorPreference) => void;
 }
 
 interface ClientToServerEvents {
@@ -35,6 +36,7 @@ interface ClientToServerEvents {
   startGame: () => void;
   placeStone: (position: Position) => void;
   getRooms: () => void;
+  setHostColor: (color: HostColorPreference) => void;
 }
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
@@ -61,6 +63,7 @@ export function useSocket() {
   const [voteTally, setVoteTally] = useState<VoteTally | null>(null);
   const [myVote, setMyVote] = useState<Position | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hostColorPreference, setHostColorPreference] = useState<HostColorPreference>('black');
 
   const currentRoomRef = useRef<RoomInfo | null>(null);
   currentRoomRef.current = currentRoom;
@@ -112,6 +115,7 @@ export function useSocket() {
       setCurrentRoom(room);
       setPlayer(restoredPlayer);
       setChallengers(restoredChallengers);
+      setHostColorPreference(restoredGameState?.hostStoneColor ?? room.hostStoneColor);
       if (restoredGameState) {
         setIsGameStarted(true);
         setGameState(restoredGameState);
@@ -132,15 +136,21 @@ export function useSocket() {
       setRooms(roomList);
     });
 
+    socket.on('hostColorChanged', (color) => {
+      setHostColorPreference(color);
+    });
+
     socket.on('roomCreated', (room, createdPlayer) => {
       setCurrentRoom(room);
       setPlayer(createdPlayer);
       setChallengers([]);
+      setHostColorPreference('black');
     });
 
     socket.on('roomJoined', (room, joinedPlayer) => {
       setCurrentRoom(room);
       setPlayer(joinedPlayer);
+      setHostColorPreference(room.hostStoneColor);
     });
 
     socket.on('playerJoined', (newPlayer) => {
@@ -213,6 +223,7 @@ export function useSocket() {
     setIsGameStarted(false);
     setVoteTally(null);
     setMyVote(null);
+    setHostColorPreference('black');
     socketRef.current?.emit('getRooms');
   }, []);
 
@@ -233,6 +244,11 @@ export function useSocket() {
     socketRef.current?.emit('getRooms');
   }, []);
 
+  const setHostColor = useCallback((color: HostColorPreference) => {
+    setHostColorPreference(color);
+    socketRef.current?.emit('setHostColor', color);
+  }, []);
+
   return {
     isConnected,
     isReconnecting,
@@ -245,6 +261,7 @@ export function useSocket() {
     voteTally,
     myVote,
     error,
+    hostColorPreference,
     createRoom,
     joinRoom,
     leaveRoom,
@@ -252,5 +269,6 @@ export function useSocket() {
     placeStone,
     castVote,
     refreshRooms,
+    setHostColor,
   };
 }

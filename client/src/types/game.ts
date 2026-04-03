@@ -1,4 +1,5 @@
 export type StoneType = 'black' | 'white' | null;
+export type HostColorPreference = 'black' | 'white' | 'random';
 
 export interface Position {
   row: number;
@@ -20,6 +21,7 @@ export interface SharedGameState {
   isHostTurn: boolean;
   winner: 'host' | 'challengers' | 'draw' | null;
   lastMove: Position | null;
+  hostStoneColor: 'black' | 'white';
 }
 
 export type VoteMap = Record<string, Position>; // challengerId → voted position
@@ -36,6 +38,7 @@ export interface RoomInfo {
   hostName: string;
   challengerCount: number;
   status: 'waiting' | 'playing' | 'finished';
+  hostStoneColor: HostColorPreference;
 }
 
 export const BOARD_SIZE = 15;

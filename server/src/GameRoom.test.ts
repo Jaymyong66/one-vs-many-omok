@@ -385,5 +385,83 @@ describe('GameRoom', () => {
       expect(info.challengerCount).toBe(1);
       expect(info.status).toBe('waiting');
     });
+
+    it('toRoomInfo includes hostStoneColor preference', () => {
+      room.setHostColor('white');
+      const info = room.toRoomInfo();
+      expect(info.hostStoneColor).toBe('white');
+    });
+  });
+
+  describe('Host Color Selection', () => {
+    it('defaults to black', () => {
+      expect(room.hostStoneColor).toBe('black');
+    });
+
+    it('setHostColor returns true and updates preference when waiting', () => {
+      expect(room.setHostColor('white')).toBe(true);
+      expect(room.hostStoneColor).toBe('white');
+
+      expect(room.setHostColor('random')).toBe(true);
+      expect(room.hostStoneColor).toBe('random');
+    });
+
+    it('setHostColor returns false and has no effect when game is playing', () => {
+      room.addChallenger(challenger);
+      room.startGame();
+      expect(room.setHostColor('white')).toBe(false);
+      expect(room.hostStoneColor).toBe('black');
+    });
+
+    it('host picks black → isHostTurn true at game start', () => {
+      room.setHostColor('black');
+      room.addChallenger(challenger);
+      room.startGame();
+      expect(room.game!.isHostTurn).toBe(true);
+      expect(room.game!.hostStoneColor).toBe('black');
+    });
+
+    it('host picks white → isHostTurn false at game start (challengers go first)', () => {
+      room.setHostColor('white');
+      room.addChallenger(challenger);
+      room.startGame();
+      expect(room.game!.isHostTurn).toBe(false);
+      expect(room.game!.hostStoneColor).toBe('white');
+    });
+
+    it('host picks white → challenger stone is black, host stone is white', () => {
+      room.setHostColor('white');
+      room.addChallenger(challenger);
+      room.startGame();
+
+      // Challenger votes first (black moves first)
+      room.castVote(challenger.id, { row: 7, col: 7 });
+      room.resolveVotes();
+      expect(room.game!.board.cells[7][7]).toBe('black'); // challenger is black
+
+      // Now host moves
+      room.placeHostStone({ row: 7, col: 8 });
+      expect(room.game!.board.cells[7][8]).toBe('white'); // host is white
+    });
+
+    it('host picks random with Math.random < 0.5 → resolves to black (host goes first)', () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0.4);
+      room.setHostColor('random');
+      room.addChallenger(challenger);
+      room.startGame();
+      expect(room.game!.isHostTurn).toBe(true);
+      expect(room.game!.hostStoneColor).toBe('black');
+      jest.restoreAllMocks();
+    });
+
+    it('host picks random with Math.random >= 0.5 → resolves to white (challengers go first)', () => {
+      jest.spyOn(Math, 'random').mockReturnValue(0.6);
+      room.setHostColor('random');
+      room.addChallenger(challenger);
+      room.startGame();
+      expect(room.game!.isHostTurn).toBe(false);
+      expect(room.game!.hostStoneColor).toBe('white');
+      jest.restoreAllMocks();
+    });
   });
 });

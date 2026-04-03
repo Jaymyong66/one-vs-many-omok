@@ -1,11 +1,17 @@
-import { Player } from '../types/game';
+import { Player, HostColorPreference } from '../types/game';
 
 interface PlayerListProps {
   host: string;
   challengers: Player[];
+  isCurrentPlayerHost: boolean;
+  currentPlayerId: string;
+  hostStoneColor?: HostColorPreference | 'black' | 'white';
 }
 
-export function PlayerList({ host, challengers }: PlayerListProps) {
+export function PlayerList({ host, challengers, isCurrentPlayerHost, currentPlayerId, hostStoneColor = 'black' }: PlayerListProps) {
+  const resolvedHostColor = hostStoneColor === 'random' ? 'black' : hostStoneColor;
+  const challengerColor = resolvedHostColor === 'black' ? 'white' : 'black';
+
   return (
     <div style={{
       padding: '16px',
@@ -21,10 +27,12 @@ export function PlayerList({ host, challengers }: PlayerListProps) {
           width: '12px',
           height: '12px',
           borderRadius: '50%',
-          backgroundColor: '#1a1a1a',
+          backgroundColor: resolvedHostColor === 'black' ? '#1a1a1a' : '#fff',
+          border: resolvedHostColor === 'white' ? '1px solid #ccc' : 'none',
           marginRight: '8px',
         }} />
-        <strong>호스트:</strong> {host}
+        <strong>호스트:</strong>{' '}
+        {isCurrentPlayerHost ? <strong style={{ backgroundColor: '#e3f2fd', borderRadius: '3px', padding: '1px 4px' }}>{host}</strong> : host}
       </div>
 
       <div style={{ borderTop: '1px solid #ddd', paddingTop: '8px' }}>
@@ -34,8 +42,8 @@ export function PlayerList({ host, challengers }: PlayerListProps) {
             width: '12px',
             height: '12px',
             borderRadius: '50%',
-            backgroundColor: '#fff',
-            border: '1px solid #ccc',
+            backgroundColor: challengerColor === 'black' ? '#1a1a1a' : '#fff',
+            border: challengerColor === 'white' ? '1px solid #ccc' : 'none',
             marginRight: '8px',
           }} />
           도전자 ({challengers.length}명):
@@ -47,7 +55,11 @@ export function PlayerList({ host, challengers }: PlayerListProps) {
         ) : (
           <ul style={{ margin: 0, paddingLeft: '20px' }}>
             {challengers.map((challenger) => (
-              <li key={challenger.id}>{challenger.name}</li>
+              <li key={challenger.id}>
+                {challenger.id === currentPlayerId
+                  ? <strong style={{ backgroundColor: '#e3f2fd', borderRadius: '3px', padding: '1px 4px' }}>{challenger.name}</strong>
+                  : challenger.name}
+              </li>
             ))}
           </ul>
         )}

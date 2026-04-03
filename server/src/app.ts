@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { GameManager } from './GameManager';
 import { GameRoom, DEFAULT_VOTE_TIMEOUT_MS } from './GameRoom';
-import { Player, ClientToServerEvents, ServerToClientEvents, Position } from './types';
+import { Player, ClientToServerEvents, ServerToClientEvents, Position, HostColorPreference } from './types';
 
 interface AppOptions {
   gracePeriodMs?: number;
@@ -171,6 +171,23 @@ export function createApp(options: AppOptions = {}) {
 
     // ── Game lifecycle ───────────────────────────────────────────────────────
 
+    socket.on('setHostColor', (color: HostColorPreference) => {
+      const session = gameManager.getSessionBySocketId(socket.id);
+      if (!session) return;
+
+      const room = gameManager.getRoomByPlayerId(session.sessionId);
+      if (!room) return;
+
+      if (room.host.id !== session.sessionId) {
+        socket.emit('error', '호스트만 돌 색상을 변경할 수 있습니다.');
+        return;
+      }
+
+      if (room.setHostColor(color)) {
+        io.to(room.id).emit('hostColorChanged', color);
+      }
+    });
+
     socket.on('startGame', () => {
       const session = gameManager.getSessionBySocketId(socket.id);
       if (!session) return;
@@ -191,6 +208,13 @@ export function createApp(options: AppOptions = {}) {
         io.to(room.id).emit('gameState', room.game!);
         io.emit('roomList', gameManager.getWaitingRooms());
         console.log(`Game started in room: ${room.id}`);
+
+        // If host plays white, challengers (black) go first — start vote timer immediately
+        if (!room.game!.isHostTurn) {
+          room.startVoteTimer(() => {
+            resolveAndBroadcast(room);
+          });
+        }
       } else {
         socket.emit('error', '게임을 시작할 수 없습니다. 도전자가 필요합니다.');
       }
