@@ -3,14 +3,17 @@ import { createServer } from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import { GameManager } from './GameManager';
+import { GameRoom, DEFAULT_VOTE_TIMEOUT_MS } from './GameRoom';
 import { Player, ClientToServerEvents, ServerToClientEvents, Position } from './types';
 
 interface AppOptions {
   gracePeriodMs?: number;
+  voteTimeoutMs?: number;
 }
 
 export function createApp(options: AppOptions = {}) {
   const gracePeriodMs = options.gracePeriodMs ?? 30000;
+  const voteTimeoutMs = options.voteTimeoutMs ?? DEFAULT_VOTE_TIMEOUT_MS;
 
   const app = express();
   app.use(cors());
@@ -23,7 +26,21 @@ export function createApp(options: AppOptions = {}) {
     }
   });
 
-  const gameManager = new GameManager();
+  const gameManager = new GameManager(voteTimeoutMs);
+
+  function resolveAndBroadcast(room: GameRoom) {
+    if (!room.game || room.game.winner !== null || room.game.isHostTurn) return;
+
+    const { position, method } = room.resolveVotes();
+    io.to(room.id).emit('voteResolved', position, method);
+    io.to(room.id).emit('gameState', room.game);
+
+    if (room.game.winner) {
+      io.to(room.id).emit('gameOver', room.game.winner, room.game.board);
+      room.status = 'finished';
+      io.emit('roomList', gameManager.getWaitingRooms());
+    }
+  }
 
   io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`);
@@ -33,7 +50,6 @@ export function createApp(options: AppOptions = {}) {
     socket.on('register', (sessionId: string) => {
       const { isNew, session } = gameManager.registerSession(sessionId, socket.id);
 
-      // Join a personal socket.io room keyed by sessionId for targeted emits
       socket.join(session.sessionId);
 
       if (!isNew && session.roomId) {
@@ -47,11 +63,12 @@ export function createApp(options: AppOptions = {}) {
             isHost: session.isHost,
           };
 
-          const gameStates = session.isHost
-            ? room.getAllGameStates()
-            : (room.getGameState(session.sessionId) ? [room.getGameState(session.sessionId)!] : []);
+          const voteTally =
+            room.game && !room.game.isHostTurn && !room.game.winner
+              ? room.getVoteTally()
+              : null;
 
-          socket.emit('reconnected', room.toRoomInfo(), playerInfo, gameStates, room.challengers);
+          socket.emit('reconnected', room.toRoomInfo(), playerInfo, room.game, room.challengers, voteTally);
           socket.to(room.id).emit('playerReconnected', session.sessionId);
 
           console.log(`Player reconnected: ${session.playerName} (${session.sessionId})`);
@@ -131,10 +148,20 @@ export function createApp(options: AppOptions = {}) {
         socket.leave(room.id);
 
         if (room.host.id === session.sessionId) {
+          // Fix #3: clear vote timer before disbanding the room
+          room.clearVoteTimer();
           io.to(room.id).emit('error', '호스트가 방을 나갔습니다.');
           io.socketsLeave(room.id);
         } else {
           socket.to(room.id).emit('playerLeft', session.sessionId);
+
+          // Fix #2: if challenger leaves during voting, check if remaining challengers all voted
+          if (room.status === 'playing' && room.game && !room.game.isHostTurn && !room.game.winner) {
+            if (room.allVotesIn()) {
+              room.clearVoteTimer();
+              resolveAndBroadcast(room);
+            }
+          }
         }
       }
 
@@ -161,19 +188,7 @@ export function createApp(options: AppOptions = {}) {
 
       if (room.startGame()) {
         io.to(room.id).emit('gameStarted');
-
-        for (const challenger of room.challengers) {
-          const gameState = room.getGameState(challenger.id);
-          if (gameState) {
-            io.to(challenger.id).emit('gameState', gameState);
-          }
-        }
-
-        const allStates = room.getAllGameStates();
-        for (const state of allStates) {
-          io.to(room.host.id).emit('gameState', state);
-        }
-
+        io.to(room.id).emit('gameState', room.game!);
         io.emit('roomList', gameManager.getWaitingRooms());
         console.log(`Game started in room: ${room.id}`);
       } else {
@@ -194,46 +209,49 @@ export function createApp(options: AppOptions = {}) {
       const isHost = room.host.id === session.sessionId;
 
       if (isHost) {
-        room.placeHostStone(position);
-        io.to(room.id).emit('hostMoved', position);
-
-        for (const challenger of room.challengers) {
-          const gameState = room.getGameState(challenger.id);
-          if (gameState) {
-            io.to(challenger.id).emit('gameState', gameState);
-            io.to(room.host.id).emit('gameState', gameState);
-
-            if (gameState.winner) {
-              io.to(challenger.id).emit('gameOver', gameState);
-              io.to(room.host.id).emit('gameOver', gameState);
-            }
-          }
+        if (!room.game?.isHostTurn) {
+          socket.emit('error', '아직 당신의 차례가 아닙니다.');
+          return;
         }
-      } else {
-        if (room.placeChallengerStone(session.sessionId, position)) {
-          const gameState = room.getGameState(session.sessionId);
-          if (gameState) {
-            socket.emit('gameState', gameState);
-            io.to(room.host.id).emit('gameState', gameState);
-            io.to(room.host.id).emit('challengerMoved', session.sessionId, position);
 
-            if (gameState.winner) {
-              socket.emit('gameOver', gameState);
-              io.to(room.host.id).emit('gameOver', gameState);
-            }
-          }
-
-          if (room.allChallengersResponded()) {
-            io.to(room.host.id).emit('allChallengersResponded');
-          }
-        } else {
+        const success = room.placeHostStone(position);
+        if (!success) {
           socket.emit('error', '잘못된 수입니다.');
+          return;
         }
-      }
 
-      if (room.isGameOver()) {
-        room.status = 'finished';
-        io.emit('roomList', gameManager.getWaitingRooms());
+        io.to(room.id).emit('hostMoved', position);
+        io.to(room.id).emit('gameState', room.game!);
+
+        if (room.game!.winner) {
+          io.to(room.id).emit('gameOver', room.game!.winner, room.game!.board);
+          room.status = 'finished';
+          io.emit('roomList', gameManager.getWaitingRooms());
+          return;
+        }
+
+        room.startVoteTimer(() => {
+          resolveAndBroadcast(room);
+        });
+      } else {
+        // Challenger casting a vote
+        if (!room.game || room.game.isHostTurn || room.game.winner) {
+          socket.emit('error', '지금은 투표 시간이 아닙니다.');
+          return;
+        }
+
+        const success = room.castVote(session.sessionId, position);
+        if (!success) {
+          socket.emit('error', '잘못된 수입니다.');
+          return;
+        }
+
+        io.to(room.id).emit('voteUpdate', room.getVoteTally());
+
+        if (room.allVotesIn()) {
+          room.clearVoteTimer();
+          resolveAndBroadcast(room);
+        }
       }
     });
 
@@ -259,20 +277,25 @@ export function createApp(options: AppOptions = {}) {
 
         if (expiredRoom) {
           if (expiredSession.isHost) {
-            if (expiredRoom.status === 'playing') {
-              for (const [challengerId, game] of expiredRoom.games) {
-                if (!game.winner) game.winner = 'challenger';
-                io.to(challengerId).emit('gameOver', game);
-              }
+            if (expiredRoom.status === 'playing' && expiredRoom.game && !expiredRoom.game.winner) {
+              expiredRoom.clearVoteTimer();
+              expiredRoom.game.winner = 'challengers';
+              expiredRoom.status = 'finished'; // Fix #10
+              io.to(expiredRoom.id).emit('gameOver', 'challengers', expiredRoom.game.board);
             }
             io.to(expiredRoom.id).emit('error', '호스트가 연결을 끊었습니다.');
             io.socketsLeave(expiredRoom.id);
           } else {
             const wasPlaying = expiredRoom.status === 'playing';
             gameManager.leaveRoom(sessionId);
-            io.to(expiredRoom.host.id).emit('playerLeft', sessionId);
-            if (wasPlaying && expiredRoom.allChallengersResponded()) {
-              io.to(expiredRoom.host.id).emit('allChallengersResponded');
+            io.to(expiredRoom.id).emit('playerLeft', sessionId); // Fix #4: broadcast to whole room
+
+            // If a challenger disconnects during voting, check if remaining challengers all voted
+            if (wasPlaying && expiredRoom.game && !expiredRoom.game.isHostTurn && !expiredRoom.game.winner) {
+              if (expiredRoom.allVotesIn()) {
+                expiredRoom.clearVoteTimer();
+                resolveAndBroadcast(expiredRoom);
+              }
             }
           }
         }

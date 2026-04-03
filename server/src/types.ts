@@ -15,12 +15,19 @@ export interface Board {
   cells: StoneType[][];
 }
 
-export interface GameState {
-  challengerId: string;
+export interface SharedGameState {
   board: Board;
   isHostTurn: boolean;
-  winner: 'host' | 'challenger' | 'draw' | null;
+  winner: 'host' | 'challengers' | 'draw' | null;
   lastMove: Position | null;
+}
+
+export type VoteMap = Record<string, Position>; // challengerId → voted position
+
+export interface VoteTally {
+  votes: VoteMap;
+  timeLeftMs: number;
+  totalVoters: number;
 }
 
 export interface Room {
@@ -28,7 +35,7 @@ export interface Room {
   name: string;
   host: Player;
   challengers: Player[];
-  games: Map<string, GameState>;
+  game: SharedGameState | null;
   status: 'waiting' | 'playing' | 'finished';
   hostReady: boolean;
 }
@@ -62,7 +69,13 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   sessionRegistered: (sessionId: string) => void;
-  reconnected: (room: RoomInfo, player: Player, gameStates: GameState[], challengers: Player[]) => void;
+  reconnected: (
+    room: RoomInfo,
+    player: Player,
+    gameState: SharedGameState | null,
+    challengers: Player[],
+    voteTally: VoteTally | null
+  ) => void;
   playerReconnected: (playerId: string) => void;
   roomCreated: (room: RoomInfo, player: Player) => void;
   roomJoined: (room: RoomInfo, player: Player) => void;
@@ -71,11 +84,11 @@ export interface ServerToClientEvents {
   playerJoined: (player: Player) => void;
   playerLeft: (playerId: string) => void;
   gameStarted: () => void;
-  gameState: (state: GameState) => void;
+  gameState: (state: SharedGameState) => void;
   hostMoved: (position: Position) => void;
-  challengerMoved: (challengerId: string, position: Position) => void;
-  gameOver: (state: GameState) => void;
-  allChallengersResponded: () => void;
+  voteUpdate: (tally: VoteTally) => void;
+  voteResolved: (position: Position, method: 'plurality' | 'tiebreak' | 'random') => void;
+  gameOver: (winner: 'host' | 'challengers' | 'draw', board: Board) => void;
   error: (message: string) => void;
 }
 

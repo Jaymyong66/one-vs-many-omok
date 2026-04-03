@@ -15,12 +15,19 @@ export interface Board {
   cells: StoneType[][];
 }
 
-export interface GameState {
-  challengerId: string;
+export interface SharedGameState {
   board: Board;
   isHostTurn: boolean;
-  winner: 'host' | 'challenger' | 'draw' | null;
+  winner: 'host' | 'challengers' | 'draw' | null;
   lastMove: Position | null;
+}
+
+export type VoteMap = Record<string, Position>; // challengerId → voted position
+
+export interface VoteTally {
+  votes: VoteMap;
+  timeLeftMs: number;
+  totalVoters: number;
 }
 
 export interface RoomInfo {

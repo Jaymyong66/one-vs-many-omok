@@ -2,7 +2,7 @@
 
 ## Overview
 
-A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomoku) simultaneously against multiple challengers. Each challenger has their own isolated board; the host's moves are applied to all boards at once.
+A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomoku) against a group of challengers on a **single shared board**. The host plays black stones individually; challengers collectively decide where to place white stones through a voting system.
 
 ---
 
@@ -10,11 +10,11 @@ A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomo
 
 | Role | Description |
 |---|---|
-| **Host** | Creates the room. Plays black stones and moves first. |
-| **Challenger** | Joins an existing room. Plays white stones on their own 1-on-1 board against the host. |
+| **Host** | Creates the room. Plays black stones and moves first each round. |
+| **Challenger** | Joins an existing room. Votes on where to place the shared white stone each round. |
 
-- Multiple challengers can be in one room at the same time.
-- Each challenger's board is independent — challengers do not interact with each other.
+- Multiple challengers share one board — they are one team against the host.
+- All challengers vote simultaneously; the majority-vote position is chosen.
 
 ---
 
@@ -28,11 +28,16 @@ A real-time multiplayer game where one host plays Omok (Korean 5-in-a-row / Gomo
 
 ## Turn Flow
 
-1. The host places a black stone → it is applied to **every** challenger's board simultaneously.
-2. Each challenger places a white stone on **their own** board independently (in parallel).
-3. Once **all** challengers have responded, it becomes the host's turn again.
+1. The host places a black stone on the shared board.
+2. A 30-second voting timer starts. Each challenger clicks a cell to cast their vote (can change vote during the window).
+3. Live vote tallies are visible to everyone in real-time.
+4. When the timer expires (or all challengers have voted), the position with the most votes is chosen:
+   - **Plurality:** most-voted cell wins outright.
+   - **Tie-break:** random pick among tied cells.
+   - **No votes:** a random empty cell is chosen automatically.
+5. The winning white stone is placed. If no winner, it is the host's turn again.
 
-A challenger who has already won or lost is excluded from the pending set and does not block the host's next turn.
+A challenger who disconnects is removed from the voter pool; the voting resolves early if all remaining challengers have voted.
 
 ---
 
@@ -48,7 +53,7 @@ All game state lives on the server. The client drives state changes through Sock
 | `joinRoom` | Challenger joins an existing room |
 | `leaveRoom` | Player leaves the room |
 | `startGame` | Host starts the game |
-| `placeStone` | Player places a stone |
+| `placeStone` | Host places a stone **or** challenger casts a vote |
 | `getRooms` | Request the current room list |
 
 ### Server → Client
@@ -60,11 +65,11 @@ All game state lives on the server. The client drives state changes through Sock
 | `roomUpdated` | Room state changed (e.g. new player joined) |
 | `roomList` | Current list of open rooms |
 | `gameStarted` | Game has begun |
-| `gameState` | Full game state snapshot |
+| `gameState` | Full shared game state snapshot |
 | `hostMoved` | Host placed a stone |
-| `challengerMoved` | A challenger placed a stone |
-| `allChallengersResponded` | All challengers have responded; host may move again |
-| `gameOver` | A board's game has ended (win/loss) |
+| `voteUpdate` | Live vote tally update (challenger voted or changed vote) |
+| `voteResolved` | Voting resolved: winning position + method (`plurality` / `tiebreak` / `random`) |
+| `gameOver` | Game ended — includes winner and final board |
 | `error` | An error occurred |
 
 ---

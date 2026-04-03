@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
-import { GameState, Player, Position, RoomInfo } from '../types/game';
+import { SharedGameState, Player, Position, RoomInfo, VoteTally, Board } from '../types/game';
 
 interface ServerToClientEvents {
   sessionRegistered: (sessionId: string) => void;
-  reconnected: (room: RoomInfo, player: Player, gameStates: GameState[], challengers: Player[]) => void;
+  reconnected: (
+    room: RoomInfo,
+    player: Player,
+    gameState: SharedGameState | null,
+    challengers: Player[],
+    voteTally: VoteTally | null
+  ) => void;
   playerReconnected: (playerId: string) => void;
   roomCreated: (room: RoomInfo, player: Player) => void;
   roomJoined: (room: RoomInfo, player: Player) => void;
@@ -13,11 +19,11 @@ interface ServerToClientEvents {
   playerJoined: (player: Player) => void;
   playerLeft: (playerId: string) => void;
   gameStarted: () => void;
-  gameState: (state: GameState) => void;
+  gameState: (state: SharedGameState) => void;
   hostMoved: (position: Position) => void;
-  challengerMoved: (challengerId: string, position: Position) => void;
-  gameOver: (state: GameState) => void;
-  allChallengersResponded: () => void;
+  voteUpdate: (tally: VoteTally) => void;
+  voteResolved: (position: Position, method: 'plurality' | 'tiebreak' | 'random') => void;
+  gameOver: (winner: 'host' | 'challengers' | 'draw', board: Board) => void;
   error: (message: string) => void;
 }
 
@@ -49,13 +55,13 @@ export function useSocket() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [currentRoom, setCurrentRoom] = useState<RoomInfo | null>(null);
   const [player, setPlayer] = useState<Player | null>(null);
-  const [gameStates, setGameStates] = useState<Map<string, GameState>>(new Map());
+  const [gameState, setGameState] = useState<SharedGameState | null>(null);
   const [challengers, setChallengers] = useState<Player[]>([]);
   const [isGameStarted, setIsGameStarted] = useState(false);
-  const [canHostMove, setCanHostMove] = useState(true);
+  const [voteTally, setVoteTally] = useState<VoteTally | null>(null);
+  const [myVote, setMyVote] = useState<Position | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Keep a ref to currentRoom so disconnect handler can read its current value
   const currentRoomRef = useRef<RoomInfo | null>(null);
   currentRoomRef.current = currentRoom;
 
@@ -76,46 +82,50 @@ export function useSocket() {
     socket.on('disconnect', () => {
       setIsConnected(false);
       if (currentRoomRef.current) {
-        // Mid-session disconnect — keep game state, show reconnecting overlay
         setIsReconnecting(true);
       } else {
-        // Not in a room — nothing meaningful to preserve
         setPlayer(null);
-        setGameStates(new Map());
+        setGameState(null);
         setChallengers([]);
         setIsGameStarted(false);
+        setVoteTally(null);
+        setMyVote(null);
       }
     });
 
-    // Fresh session — no prior state to restore
     socket.on('sessionRegistered', () => {
       setIsConnected(true);
       setIsReconnecting(false);
       setCurrentRoom(null);
       setPlayer(null);
-      setGameStates(new Map());
+      setGameState(null);
       setChallengers([]);
       setIsGameStarted(false);
+      setVoteTally(null);
+      setMyVote(null);
       socket.emit('getRooms');
     });
 
-    // Reconnected with active session — restore full state
-    socket.on('reconnected', (room, restoredPlayer, states, restoredChallengers) => {
+    socket.on('reconnected', (room, restoredPlayer, restoredGameState, restoredChallengers, restoredVoteTally) => {
       setIsConnected(true);
       setIsReconnecting(false);
       setCurrentRoom(room);
       setPlayer(restoredPlayer);
       setChallengers(restoredChallengers);
-      if (states.length > 0) {
+      if (restoredGameState) {
         setIsGameStarted(true);
-        const newMap = new Map<string, GameState>();
-        for (const s of states) newMap.set(s.challengerId, s);
-        setGameStates(newMap);
+        setGameState(restoredGameState);
+      }
+      if (restoredVoteTally) {
+        setVoteTally(restoredVoteTally);
+        // Fix #5: restore my vote highlight from the tally
+        const myVotePos = restoredVoteTally.votes[restoredPlayer.id];
+        if (myVotePos) setMyVote(myVotePos);
       }
     });
 
     socket.on('playerReconnected', (_playerId) => {
-      // Peer came back — no state change needed in v1
+      // Peer came back — no state change needed
     });
 
     socket.on('roomList', (roomList) => {
@@ -143,27 +153,41 @@ export function useSocket() {
 
     socket.on('gameStarted', () => {
       setIsGameStarted(true);
-      setCanHostMove(true);
+      setVoteTally(null);
+      setMyVote(null);
     });
 
     socket.on('gameState', (state) => {
-      setGameStates(prev => {
-        const newMap = new Map(prev);
-        newMap.set(state.challengerId, state);
-        return newMap;
-      });
-    });
-
-    socket.on('allChallengersResponded', () => {
-      setCanHostMove(true);
+      setGameState(state);
+      if (state.isHostTurn) {
+        setVoteTally(null);
+        setMyVote(null);
+      }
     });
 
     socket.on('hostMoved', () => {
-      setCanHostMove(false);
+      // gameState event carries full state; just clear any lingering vote UI
+      setMyVote(null);
+    });
+
+    socket.on('voteUpdate', (tally) => {
+      setVoteTally(tally);
+    });
+
+    socket.on('voteResolved', (_position, _method) => {
+      // gameState event follows with the updated board; clear vote state
+      setVoteTally(null);
+      setMyVote(null);
+    });
+
+    socket.on('gameOver', (_winner, _board) => {
+      setVoteTally(null);
+      setMyVote(null);
     });
 
     socket.on('error', (message) => {
       setError(message);
+      setMyVote(null); // Fix #6: roll back optimistic vote on rejection
       setTimeout(() => setError(null), 3000);
     });
 
@@ -184,9 +208,11 @@ export function useSocket() {
     socketRef.current?.emit('leaveRoom');
     setCurrentRoom(null);
     setPlayer(null);
-    setGameStates(new Map());
+    setGameState(null);
     setChallengers([]);
     setIsGameStarted(false);
+    setVoteTally(null);
+    setMyVote(null);
     socketRef.current?.emit('getRooms');
   }, []);
 
@@ -195,6 +221,11 @@ export function useSocket() {
   }, []);
 
   const placeStone = useCallback((position: Position) => {
+    socketRef.current?.emit('placeStone', position);
+  }, []);
+
+  const castVote = useCallback((position: Position) => {
+    setMyVote(position);
     socketRef.current?.emit('placeStone', position);
   }, []);
 
@@ -208,16 +239,18 @@ export function useSocket() {
     rooms,
     currentRoom,
     player,
-    gameStates,
+    gameState,
     challengers,
     isGameStarted,
-    canHostMove,
+    voteTally,
+    myVote,
     error,
     createRoom,
     joinRoom,
     leaveRoom,
     startGame,
     placeStone,
+    castVote,
     refreshRooms,
   };
 }

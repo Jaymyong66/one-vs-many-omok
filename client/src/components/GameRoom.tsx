@@ -1,4 +1,5 @@
-import { GameState, Player, Position } from '../types/game';
+import { useEffect, useState } from 'react';
+import { SharedGameState, Player, Position, VoteTally } from '../types/game';
 import { Board } from './Board';
 import { PlayerList } from './PlayerList';
 
@@ -7,12 +8,32 @@ interface GameRoomProps {
   hostName: string;
   player: Player;
   challengers: Player[];
-  gameStates: Map<string, GameState>;
+  gameState: SharedGameState | null;
   isGameStarted: boolean;
-  canHostMove: boolean;
+  voteTally: VoteTally | null;
+  myVote: Position | null;
   onStartGame: () => void;
   onPlaceStone: (position: Position) => void;
+  onCastVote: (position: Position) => void;
   onLeaveRoom: () => void;
+}
+
+function useCountdown(timeLeftMs: number | null): number {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    if (timeLeftMs === null) {
+      setSecondsLeft(0);
+      return;
+    }
+    setSecondsLeft(Math.ceil(timeLeftMs / 1000));
+    const interval = setInterval(() => {
+      setSecondsLeft(prev => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [timeLeftMs]);
+
+  return secondsLeft;
 }
 
 export function GameRoom({
@@ -20,110 +41,118 @@ export function GameRoom({
   hostName,
   player,
   challengers,
-  gameStates,
+  gameState,
   isGameStarted,
-  canHostMove,
+  voteTally,
+  myVote,
   onStartGame,
   onPlaceStone,
+  onCastVote,
   onLeaveRoom,
 }: GameRoomProps) {
   const isHost = player.isHost;
+  const isVotingPhase = !!voteTally && gameState && !gameState.isHostTurn && !gameState.winner;
+  const secondsLeft = useCountdown(isVotingPhase ? voteTally!.timeLeftMs : null);
 
-  const renderHostView = () => {
-    if (!isGameStarted) {
+  const voteCount = isVotingPhase ? Object.keys(voteTally!.votes).length : 0;
+  const totalVoters = isVotingPhase ? voteTally!.totalVoters : 0;
+
+  const renderStatus = () => {
+    if (!gameState) return null;
+
+    if (gameState.winner) {
+      const winnerText =
+        gameState.winner === 'host'
+          ? isHost ? '🎉 승리! 모든 도전자를 이겼습니다!' : '😢 패배... 호스트가 이겼습니다.'
+          : gameState.winner === 'challengers'
+            ? isHost ? '😢 패배... 도전자들이 이겼습니다.' : '🎉 승리! 도전자들이 이겼습니다!'
+            : '🤝 무승부';
+      const bgColor =
+        (gameState.winner === 'host' && isHost) || (gameState.winner === 'challengers' && !isHost)
+          ? '#e8f5e9'
+          : gameState.winner === 'draw'
+            ? '#fff3e0'
+            : '#ffebee';
       return (
-        <div style={{ textAlign: 'center' }}>
-          <p style={{ marginBottom: '20px', color: '#666' }}>
-            도전자가 참가하면 게임을 시작할 수 있습니다.
-          </p>
-          <button
-            onClick={onStartGame}
-            disabled={challengers.length === 0}
-            style={{
-              padding: '14px 28px',
-              fontSize: '18px',
-              backgroundColor: challengers.length > 0 ? '#4CAF50' : '#ccc',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: challengers.length > 0 ? 'pointer' : 'not-allowed',
-            }}
-          >
-            게임 시작
-          </button>
+        <div style={{ padding: '12px', backgroundColor: bgColor, borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+          {winnerText}
         </div>
       );
     }
 
-    const allStates = Array.from(gameStates.values());
-    const activeGames = allStates.filter(g => !g.winner);
-    const finishedGames = allStates.filter(g => g.winner);
-
-    return (
-      <div>
-        <div style={{
-          marginBottom: '16px',
-          padding: '12px',
-          backgroundColor: canHostMove ? '#e8f5e9' : '#fff3e0',
-          borderRadius: '8px',
-          textAlign: 'center',
-        }}>
-          {canHostMove
-            ? '⚫ 당신의 차례입니다. 돌을 놓으세요!'
-            : '⏳ 도전자들의 응수를 기다리는 중...'}
-        </div>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '20px',
-        }}>
-          {activeGames.map((game) => {
-            const challengerName = challengers.find(c => c.id === game.challengerId)?.name || '???';
-            return (
-              <div key={game.challengerId} style={{
-                padding: '16px',
-                backgroundColor: '#f5f5f5',
-                borderRadius: '8px',
-              }}>
-                <h4 style={{ margin: '0 0 12px 0' }}>vs {challengerName}</h4>
-                <Board
-                  board={game.board}
-                  lastMove={game.lastMove}
-                  onCellClick={onPlaceStone}
-                  disabled={!canHostMove}
-                />
-              </div>
-            );
-          })}
-        </div>
-
-        {finishedGames.length > 0 && (
-          <div style={{ marginTop: '20px' }}>
-            <h3>종료된 게임</h3>
-            {finishedGames.map((game) => {
-              const challengerName = challengers.find(c => c.id === game.challengerId)?.name || '???';
-              const resultText = game.winner === 'host' ? '승리!' : game.winner === 'challenger' ? '패배' : '무승부';
-              const resultColor = game.winner === 'host' ? '#4CAF50' : game.winner === 'challenger' ? '#f44336' : '#FF9800';
-              return (
-                <div key={game.challengerId} style={{
-                  padding: '12px',
-                  backgroundColor: '#f5f5f5',
-                  borderRadius: '8px',
-                  marginBottom: '8px',
-                }}>
-                  vs {challengerName}: <span style={{ color: resultColor, fontWeight: 'bold' }}>{resultText}</span>
-                </div>
-              );
-            })}
+    if (isHost) {
+      if (gameState.isHostTurn) {
+        return (
+          <div style={{ padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+            ⚫ 당신의 차례입니다. 돌을 놓으세요!
           </div>
-        )}
+        );
+      }
+      return (
+        <div style={{ padding: '12px', backgroundColor: '#fff3e0', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+          ⏳ 도전자들이 투표 중... ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음
+        </div>
+      );
+    }
+
+    // Challenger view
+    if (gameState.isHostTurn) {
+      return (
+        <div style={{ padding: '12px', backgroundColor: '#fff3e0', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+          ⏳ 호스트의 차례입니다...
+        </div>
+      );
+    }
+    if (myVote) {
+      return (
+        <div style={{ padding: '12px', backgroundColor: '#e3f2fd', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+          ⚪ 투표 완료! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음 (다른 칸을 클릭해 변경 가능)
+        </div>
+      );
+    }
+    return (
+      <div style={{ padding: '12px', backgroundColor: '#e8f5e9', borderRadius: '8px', textAlign: 'center', marginBottom: 16 }}>
+        ⚪ 돌을 놓을 위치에 투표하세요! ({voteCount}/{totalVoters} 투표) — {secondsLeft}초 남음
       </div>
     );
   };
 
-  const renderChallengerView = () => {
+  const handleBoardClick = (position: Position) => {
+    if (!gameState || gameState.winner) return;
+    if (gameState.board.cells[position.row][position.col] !== null) return; // Fix #7: occupied cell
+    if (isHost && gameState.isHostTurn) {
+      onPlaceStone(position);
+    } else if (!isHost && !gameState.isHostTurn) {
+      onCastVote(position);
+    }
+  };
+
+  const renderBoard = () => {
     if (!isGameStarted) {
+      if (isHost) {
+        return (
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ marginBottom: '20px', color: '#666' }}>
+              도전자가 참가하면 게임을 시작할 수 있습니다.
+            </p>
+            <button
+              onClick={onStartGame}
+              disabled={challengers.length === 0}
+              style={{
+                padding: '14px 28px',
+                fontSize: '18px',
+                backgroundColor: challengers.length > 0 ? '#4CAF50' : '#ccc',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: challengers.length > 0 ? 'pointer' : 'not-allowed',
+              }}
+            >
+              게임 시작
+            </button>
+          </div>
+        );
+      }
       return (
         <div style={{ textAlign: 'center', color: '#666' }}>
           <p>호스트가 게임을 시작할 때까지 기다려주세요...</p>
@@ -131,53 +160,28 @@ export function GameRoom({
       );
     }
 
-    const game = gameStates.get(player.id);
-    if (!game) {
-      return <div>게임 정보를 불러오는 중...</div>;
-    }
+    if (!gameState) return <div>게임 정보를 불러오는 중...</div>;
 
-    const isMyTurn = !game.isHostTurn && !game.winner;
+    const boardDisabled = isHost
+      ? !gameState.isHostTurn || !!gameState.winner
+      : gameState.isHostTurn || !!gameState.winner;
 
     return (
-      <div>
-        <div style={{
-          marginBottom: '16px',
-          padding: '12px',
-          backgroundColor: game.winner
-            ? game.winner === 'challenger' ? '#e8f5e9' : '#ffebee'
-            : isMyTurn ? '#e8f5e9' : '#fff3e0',
-          borderRadius: '8px',
-          textAlign: 'center',
-        }}>
-          {game.winner
-            ? game.winner === 'challenger'
-              ? '🎉 승리!'
-              : game.winner === 'host'
-                ? '😢 패배...'
-                : '🤝 무승부'
-            : isMyTurn
-              ? '⚪ 당신의 차례입니다. 돌을 놓으세요!'
-              : '⏳ 호스트의 차례입니다...'}
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
-          <Board
-            board={game.board}
-            lastMove={game.lastMove}
-            onCellClick={onPlaceStone}
-            disabled={!isMyTurn}
-          />
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <Board
+          board={gameState.board}
+          lastMove={gameState.lastMove}
+          onCellClick={handleBoardClick}
+          disabled={boardDisabled}
+          votes={isVotingPhase ? voteTally!.votes : undefined}
+          myVote={!isHost ? myVote : undefined}
+        />
       </div>
     );
   };
 
   return (
-    <div style={{
-      maxWidth: '900px',
-      margin: '0 auto',
-      padding: '20px',
-    }}>
+    <div style={{ maxWidth: '900px', margin: '0 auto', padding: '20px' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -203,7 +207,8 @@ export function GameRoom({
 
       <PlayerList host={hostName} challengers={challengers} />
 
-      {isHost ? renderHostView() : renderChallengerView()}
+      {renderStatus()}
+      {renderBoard()}
     </div>
   );
 }

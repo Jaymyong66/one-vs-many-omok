@@ -1,4 +1,4 @@
-import { GameRoom } from './GameRoom';
+import { GameRoom, DEFAULT_VOTE_TIMEOUT_MS } from './GameRoom';
 import { Player, RoomInfo, SessionInfo } from './types';
 
 export class GameManager {
@@ -6,6 +6,11 @@ export class GameManager {
   private playerRooms: Map<string, string> = new Map();
   private sessions: Map<string, SessionInfo> = new Map();
   private socketToSession: Map<string, string> = new Map();
+  private readonly voteTimeoutMs: number;
+
+  constructor(voteTimeoutMs = DEFAULT_VOTE_TIMEOUT_MS) {
+    this.voteTimeoutMs = voteTimeoutMs;
+  }
 
   generateRoomId(): string {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -70,7 +75,7 @@ export class GameManager {
 
   createRoom(roomName: string, host: Player): GameRoom {
     const roomId = this.generateRoomId();
-    const room = new GameRoom(roomId, roomName, host);
+    const room = new GameRoom(roomId, roomName, host, this.voteTimeoutMs);
     this.rooms.set(roomId, room);
     this.playerRooms.set(host.id, roomId);
     return room;

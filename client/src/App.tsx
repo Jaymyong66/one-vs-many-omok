@@ -9,16 +9,18 @@ function App() {
     rooms,
     currentRoom,
     player,
-    gameStates,
+    gameState,
     challengers,
     isGameStarted,
-    canHostMove,
+    voteTally,
+    myVote,
     error,
     createRoom,
     joinRoom,
     leaveRoom,
     startGame,
     placeStone,
+    castVote,
     refreshRooms,
   } = useSocket();
 
@@ -69,11 +71,13 @@ function App() {
           hostName={currentRoom.hostName}
           player={player}
           challengers={challengers}
-          gameStates={gameStates}
+          gameState={gameState}
           isGameStarted={isGameStarted}
-          canHostMove={canHostMove}
+          voteTally={voteTally}
+          myVote={myVote}
           onStartGame={startGame}
           onPlaceStone={placeStone}
+          onCastVote={castVote}
           onLeaveRoom={leaveRoom}
         />
       )}

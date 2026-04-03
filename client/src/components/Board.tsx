@@ -1,4 +1,4 @@
-import { Board as BoardType, Position, BOARD_SIZE } from '../types/game';
+import { Board as BoardType, Position, BOARD_SIZE, VoteMap } from '../types/game';
 import { Stone } from './Stone';
 
 interface BoardProps {
@@ -6,9 +6,11 @@ interface BoardProps {
   lastMove: Position | null;
   onCellClick: (position: Position) => void;
   disabled?: boolean;
+  votes?: VoteMap;
+  myVote?: Position | null;
 }
 
-export function Board({ board, lastMove, onCellClick, disabled }: BoardProps) {
+export function Board({ board, lastMove, onCellClick, disabled, votes, myVote }: BoardProps) {
   const cellSize = 32;
   const boardPadding = 20;
   const boardSize = cellSize * (BOARD_SIZE - 1) + boardPadding * 2;
@@ -19,10 +21,18 @@ export function Board({ board, lastMove, onCellClick, disabled }: BoardProps) {
     }
   };
 
+  // Build a per-cell vote count map for rendering
+  const voteCounts: Record<string, number> = {};
+  if (votes) {
+    for (const pos of Object.values(votes)) {
+      const key = `${pos.row},${pos.col}`;
+      voteCounts[key] = (voteCounts[key] || 0) + 1;
+    }
+  }
+
   const renderGridLines = () => {
     const lines = [];
 
-    // Horizontal lines
     for (let i = 0; i < BOARD_SIZE; i++) {
       lines.push(
         <line
@@ -37,7 +47,6 @@ export function Board({ board, lastMove, onCellClick, disabled }: BoardProps) {
       );
     }
 
-    // Vertical lines
     for (let i = 0; i < BOARD_SIZE; i++) {
       lines.push(
         <line
@@ -75,14 +84,17 @@ export function Board({ board, lastMove, onCellClick, disabled }: BoardProps) {
   };
 
   const renderStones = () => {
-    const stones = [];
+    const cells = [];
 
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
         const stone = board.cells[row][col];
         const isLast = lastMove?.row === row && lastMove?.col === col;
+        const key = `${row},${col}`;
+        const voteCount = voteCounts[key] || 0;
+        const isMyVoteCell = myVote?.row === row && myVote?.col === col;
 
-        stones.push(
+        cells.push(
           <div
             key={`cell-${row}-${col}`}
             onClick={() => handleClick(row, col)}
@@ -96,12 +108,50 @@ export function Board({ board, lastMove, onCellClick, disabled }: BoardProps) {
             }}
           >
             <Stone type={stone} isLastMove={isLast} />
+
+            {/* My vote highlight (ring under any stone) */}
+            {isMyVoteCell && !stone && (
+              <div style={{
+                position: 'absolute',
+                inset: 3,
+                borderRadius: '50%',
+                border: '2px solid #f59e0b',
+                pointerEvents: 'none',
+              }} />
+            )}
+
+            {/* Vote count badge (only on empty cells with votes) */}
+            {voteCount > 0 && !stone && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+              }}>
+                <div style={{
+                  width: 18,
+                  height: 18,
+                  borderRadius: '50%',
+                  backgroundColor: isMyVoteCell ? '#f59e0b' : 'rgba(59,130,246,0.85)',
+                  color: 'white',
+                  fontSize: 11,
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  {voteCount}
+                </div>
+              </div>
+            )}
           </div>
         );
       }
     }
 
-    return stones;
+    return cells;
   };
 
   return (
