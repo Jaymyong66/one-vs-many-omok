@@ -1,3 +1,5 @@
+**언어 선택 / Language:** 한국어 | [English](README.en.md)
+
 # 일대다 오목 (One vs Many Omok)
 
 1명의 호스트가 여러 명의 도전자와 동시에 오목 대결을 펼치는 실시간 멀티플레이어 게임입니다.
