@@ -2,20 +2,22 @@
 
 # One vs Many Omok
 
-A real-time multiplayer game where one host plays Omok (5-in-a-row / Gomoku) simultaneously against multiple challengers.
+A real-time multiplayer game where one host plays Omok (5-in-a-row / Gomoku) against a team of challengers on a **single shared board**. Challengers collectively decide each move through voting.
 
 ## How to Play
 
-- **Host**: Creates the room and plays with black stones (moves first)
-- **Challengers**: Join the room and each play white stones against the host in a 1-on-1 board
-- **Board**: 15×15 grid
+- **Host**: Creates the room and selects a stone color (black, white, or random) before the game starts
+- **Challengers**: Join the room and vote together as a team on each move
+- **Board**: 15×15 grid (single shared board)
 - **Win condition**: 5 consecutive stones horizontally, vertically, or diagonally
 
 ### Turn Flow
 
-1. The host places a stone — it is applied to every challenger's board simultaneously
-2. Each challenger responds on their own board independently
-3. Once all challengers have responded, it becomes the host's turn again
+1. Black moves first — if the host plays black, the host moves; if the host plays white, challengers vote first
+2. A 30-second voting timer starts — each challenger clicks a cell to cast or change their vote
+3. Live vote tallies are visible to everyone in real-time
+4. When the timer expires (or all challengers have voted), the majority-vote position is chosen; ties are broken randomly; no votes → a random empty cell is chosen
+5. If no winner, it becomes the other side's turn
 
 ## Tech Stack
 
@@ -66,35 +68,6 @@ npm test
 ```bash
 cd client
 npm run test:run
-```
-
-## Project Structure
-
-```
-one-vs-many-omok/
-├── client/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Board.tsx        # Omok board UI
-│   │   │   ├── Stone.tsx        # Stone component
-│   │   │   ├── GameRoom.tsx     # Game room UI
-│   │   │   ├── Lobby.tsx        # Lobby / room list
-│   │   │   └── PlayerList.tsx   # Participant list
-│   │   ├── hooks/
-│   │   │   └── useSocket.ts     # WebSocket connection hook
-│   │   ├── utils/
-│   │   │   └── gameLogic.ts     # Win detection logic
-│   │   └── types/
-│   │       └── game.ts          # Type definitions
-│   ├── granite.config.ts        # Appintos configuration
-│   └── vite.config.ts
-│
-└── server/
-    └── src/
-        ├── index.ts             # Server entry point
-        ├── GameRoom.ts          # Game room class
-        ├── GameManager.ts       # Room manager
-        └── types.ts             # Server types
 ```
 
 ## Build
